@@ -494,25 +494,35 @@ impl ExecutionClient for SchwabExecutionClient {
         let order_request = build_order_request(&cmd.order_init)
             .context("failed to build OrderRequest from Nautilus order")?;
 
-        // Use tokio::task::block_in_place since this is a sync method calling async SDK
-        // The ExecutionClient trait's submit_order is sync (?Send), so we spawn the async work
-        let http_client = self.http_client.clone();
-        let hash_clone = hash.clone();
-
-        // For V1, we log the intent and note that actual async submission
-        // requires the engine's async runtime integration.
-        // In production, the engine would call this within an async context.
         debug!(
             order_type = ?cmd.order_init.order_type,
             side = ?cmd.order_init.order_side,
             quantity = %cmd.order_init.quantity,
-            "order request built successfully; async submission deferred to engine runtime"
+            "order request built successfully; submitting via Schwab API"
         );
 
-        // Note: In a real integration, we'd need the engine to provide an async handle.
-        // For now, we validate the order can be built and log it.
-        // The actual HTTP call would be: http_client.inner().orders(&hash_clone).place(order_request).await
-        let _ = (http_client, hash_clone, order_request);
+        // Bridge sync → async: the ExecutionClient trait requires sync methods,
+        // but schwab-sdk is async. block_in_place + Handle::current().block_on()
+        // is safe because Nautilus calls these from its own runtime thread pool.
+        let http_client = self.http_client.clone();
+        let hash_clone = hash.clone();
+
+        let order_id = tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async move {
+                http_client
+                    .inner()
+                    .orders(&hash_clone)
+                    .place(order_request)
+                    .await
+            })
+        })
+        .context("failed to submit order to Schwab API")?;
+
+        info!(
+            venue_order_id = %order_id,
+            client_order_id = %cmd.client_order_id,
+            "order submitted successfully to Schwab"
+        );
 
         Ok(())
     }
@@ -531,16 +541,193 @@ impl ExecutionClient for SchwabExecutionClient {
             "modifying order on Schwab"
         );
 
-        // For V1, we log the intent. Actual replace requires fetching the existing order,
-        // modifying fields, and calling orders(hash).replace(order_id, new_request).
+        // Parse the venue order ID as i64 for schwab-sdk OrderId
+        let order_id_str = venue_order_id.to_string();
+        let order_id: i64 = order_id_str
+            .parse()
+            .context("venue_order_id must be a numeric Schwab order ID")?;
+        let sdk_order_id = schwab_sdk::orders::OrderId::from(order_id);
+
+        // To replace an order, we need to fetch the existing order first to get
+        // its side, type, symbol, and TIF — then overlay the modified fields.
+        let http_client = self.http_client.clone();
+        let hash_clone = hash.clone();
+
+        let existing_order = tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async move {
+                http_client
+                    .inner()
+                    .orders(&hash_clone)
+                    .get(sdk_order_id)
+                    .await
+            })
+        })
+        .context("failed to fetch existing order for modification")?;
+
+        // Extract existing order details to build replacement
+        let leg = existing_order
+            .order_leg_collection
+            .first()
+            .ok_or_else(|| anyhow!("existing order has no legs"))?;
+
+        let symbol = leg
+            .instrument
+            .as_ref()
+            .and_then(|i| i.symbol())
+            .ok_or_else(|| anyhow!("existing order leg has no symbol"))?
+            .to_string();
+
+        let instruction = leg
+            .instruction
+            .as_ref()
+            .ok_or_else(|| anyhow!("existing order leg has no instruction"))?;
+
+        let side = map_instruction_to_side(instruction);
+
+        // Use modified quantity if provided, otherwise keep existing
+        let qty = cmd
+            .quantity
+            .map(|q| q.as_decimal())
+            .unwrap_or_else(|| {
+                existing_order
+                    .quantity
+                    .unwrap_or(rust_decimal::Decimal::ZERO)
+            });
+
+        // Build replacement order based on existing order type with modified fields
+        let existing_order_type = existing_order
+            .order_type
+            .as_ref()
+            .map(map_schwab_order_type)
+            .unwrap_or(OrderType::Limit);
+
+        let builder = match (side, existing_order_type) {
+            (OrderSide::Buy, OrderType::Market) => {
+                schwab_sdk::orders::OrderRequest::buy_market(symbol, qty)
+            }
+            (OrderSide::Sell, OrderType::Market) => {
+                schwab_sdk::orders::OrderRequest::sell_market(symbol, qty)
+            }
+            (OrderSide::Buy, OrderType::Limit) => {
+                let price = cmd
+                    .price
+                    .map(|p| p.as_decimal())
+                    .or(existing_order.price)
+                    .ok_or_else(|| anyhow!("limit buy requires a price"))?;
+                schwab_sdk::orders::OrderRequest::buy_limit(symbol, qty, price)
+            }
+            (OrderSide::Sell, OrderType::Limit) => {
+                let price = cmd
+                    .price
+                    .map(|p| p.as_decimal())
+                    .or(existing_order.price)
+                    .ok_or_else(|| anyhow!("limit sell requires a price"))?;
+                schwab_sdk::orders::OrderRequest::sell_limit(symbol, qty, price)
+            }
+            (OrderSide::Buy, OrderType::StopMarket) => {
+                let trigger = cmd
+                    .trigger_price
+                    .map(|p| p.as_decimal())
+                    .or(existing_order.stop_price)
+                    .ok_or_else(|| anyhow!("stop buy requires a trigger price"))?;
+                schwab_sdk::orders::OrderRequest::single()
+                    .stop(trigger)
+                    .equity_buy(symbol, qty)
+            }
+            (OrderSide::Sell, OrderType::StopMarket) => {
+                let trigger = cmd
+                    .trigger_price
+                    .map(|p| p.as_decimal())
+                    .or(existing_order.stop_price)
+                    .ok_or_else(|| anyhow!("stop sell requires a trigger price"))?;
+                schwab_sdk::orders::OrderRequest::sell_stop(symbol, qty, trigger)
+            }
+            (OrderSide::Buy, OrderType::StopLimit) => {
+                let trigger = cmd
+                    .trigger_price
+                    .map(|p| p.as_decimal())
+                    .or(existing_order.stop_price)
+                    .ok_or_else(|| anyhow!("stop-limit buy requires a trigger price"))?;
+                let price = cmd
+                    .price
+                    .map(|p| p.as_decimal())
+                    .or(existing_order.price)
+                    .ok_or_else(|| anyhow!("stop-limit buy requires a limit price"))?;
+                schwab_sdk::orders::OrderRequest::single()
+                    .stop_limit(trigger, price)
+                    .equity_buy(symbol, qty)
+            }
+            (OrderSide::Sell, OrderType::StopLimit) => {
+                let trigger = cmd
+                    .trigger_price
+                    .map(|p| p.as_decimal())
+                    .or(existing_order.stop_price)
+                    .ok_or_else(|| anyhow!("stop-limit sell requires a trigger price"))?;
+                let price = cmd
+                    .price
+                    .map(|p| p.as_decimal())
+                    .or(existing_order.price)
+                    .ok_or_else(|| anyhow!("stop-limit sell requires a limit price"))?;
+                schwab_sdk::orders::OrderRequest::sell_stop_limit(symbol, qty, trigger, price)
+            }
+            (s, t) => {
+                return Err(anyhow!(
+                    "unsupported order combination for modify: side={:?}, type={:?}",
+                    s,
+                    t
+                ));
+            }
+        };
+
+        // Preserve existing duration (TIF)
+        let duration = existing_order
+            .duration
+            .as_ref()
+            .map(|d| match d {
+                schwab_sdk::orders::Duration::Day => schwab_sdk::orders::Duration::Day,
+                schwab_sdk::orders::Duration::GoodTillCancel => {
+                    schwab_sdk::orders::Duration::GoodTillCancel
+                }
+                schwab_sdk::orders::Duration::FillOrKill => {
+                    schwab_sdk::orders::Duration::FillOrKill
+                }
+                schwab_sdk::orders::Duration::ImmediateOrCancel => {
+                    schwab_sdk::orders::Duration::ImmediateOrCancel
+                }
+                _ => schwab_sdk::orders::Duration::Day,
+            })
+            .unwrap_or(schwab_sdk::orders::Duration::Day);
+
+        let replacement_request = builder.duration(duration).build();
+
         debug!(
-            quantity = ?cmd.quantity,
+            order_id = order_id,
+            quantity = %qty,
             price = ?cmd.price,
             trigger_price = ?cmd.trigger_price,
-            "modify order validated; async replace deferred to engine runtime"
+            "sending replace order to Schwab API"
         );
 
-        let _ = hash;
+        let http_client = self.http_client.clone();
+        let hash_clone = hash.clone();
+
+        let new_order_id = tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async move {
+                http_client
+                    .inner()
+                    .orders(&hash_clone)
+                    .replace(sdk_order_id, replacement_request)
+                    .await
+            })
+        })
+        .context("failed to replace order on Schwab API")?;
+
+        info!(
+            old_venue_order_id = %venue_order_id,
+            new_venue_order_id = %new_order_id,
+            client_order_id = %cmd.client_order_id,
+            "order modified successfully on Schwab"
+        );
 
         Ok(())
     }
@@ -561,13 +748,30 @@ impl ExecutionClient for SchwabExecutionClient {
 
         // Parse the venue order ID as i64 for schwab-sdk OrderId
         let order_id_str = venue_order_id.to_string();
-        let _order_id: i64 = order_id_str
+        let order_id: i64 = order_id_str
             .parse()
             .context("venue_order_id must be a numeric Schwab order ID")?;
+        let sdk_order_id = schwab_sdk::orders::OrderId::from(order_id);
 
-        debug!("cancel order validated; async cancel deferred to engine runtime");
+        let http_client = self.http_client.clone();
+        let hash_clone = hash.clone();
 
-        let _ = hash;
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async move {
+                http_client
+                    .inner()
+                    .orders(&hash_clone)
+                    .cancel(sdk_order_id)
+                    .await
+            })
+        })
+        .context("failed to cancel order on Schwab API")?;
+
+        info!(
+            venue_order_id = %venue_order_id,
+            client_order_id = %cmd.client_order_id,
+            "order cancelled successfully on Schwab"
+        );
 
         Ok(())
     }
