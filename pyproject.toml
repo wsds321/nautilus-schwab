@@ -35,11 +35,11 @@ classifiers = [
 keywords = ["nautilus", "schwab", "trading", "quantitative", "finance"]
 
 [project.urls]
-Homepage = "https://github.com/satr-trading/nautilus-schwab"
-Repository = "https://github.com/satr-trading/nautilus-schwab"
-Documentation = "https://github.com/satr-trading/nautilus-schwab#readme"
-Changelog = "https://github.com/satr-trading/nautilus-schwab/blob/main/CHANGELOG.md"
-Issues = "https://github.com/satr-trading/nautilus-schwab/issues"
+Homepage = "https://github.com/wsds321/nautilus-schwab"
+Repository = "https://github.com/wsds321/nautilus-schwab"
+Documentation = "https://github.com/wsds321/nautilus-schwab#readme"
+Changelog = "https://github.com/wsds321/nautilus-schwab/blob/main/CHANGELOG.md"
+Issues = "https://github.com/wsds321/nautilus-schwab/issues"
 
 [tool.maturin]
 features = ["python"]

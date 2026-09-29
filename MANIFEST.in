@@ -1,0 +1,27 @@
+# Include Rust source files for sdist
+recursive-include src *.rs
+include Cargo.toml
+include Cargo.lock
+
+# Include Python source files
+recursive-include python *.py
+recursive-include python *.pyi
+
+# Include documentation
+include README.md
+include CHANGELOG.md
+include CONTRIBUTING.md
+include LICENSE
+
+# Include build configuration
+include pyproject.toml
+
+# Include examples
+recursive-include examples *
+
+# Exclude unnecessary files
+global-exclude *.pyc
+global-exclude __pycache__
+global-exclude .git*
+prune target
+prune .github
