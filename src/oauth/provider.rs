@@ -20,7 +20,7 @@ use crate::common::credential::SchwabCredential;
 use crate::http::error::SchwabHttpError;
 use secrecy::{ExposeSecret, SecretString};
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use std::sync::RwLock;
 use tracing::{debug, info, warn};
 
 /// Default path to schwab-mcp token file.
@@ -59,25 +59,20 @@ impl TokenState {
 pub struct SchwabTokenProvider {
     /// Current token state (access token, refresh token, expiry).
     state: RwLock<TokenState>,
-    /// Credentials for token refresh requests.
-    credential: Arc<RwLock<SchwabCredential>>,
+    /// Credentials for token refresh requests (async RwLock — held across await in refresh).
+    credential: Arc<tokio::sync::RwLock<SchwabCredential>>,
     /// HTTP client for token endpoint requests (avoids circular dependency).
     http: reqwest::Client,
     /// Schwab OAuth token endpoint URL.
     token_url: String,
-    /// Tokio runtime handle for blocking token access in sync context.
-    runtime_handle: tokio::runtime::Handle,
 }
 
 // Implement schwab_sdk's TokenProvider trait (synchronous).
 impl schwab_sdk::TokenProvider for SchwabTokenProvider {
     fn access_token(&self) -> Result<schwab_sdk::AuthToken, Box<dyn std::error::Error + Send + Sync>> {
         // The SDK calls this synchronously once per request.
-        // We read the cached token without blocking on I/O.
-        let token_str = self.runtime_handle.block_on(async {
-            let state = self.state.read().await;
-            state.access_token.expose_secret().to_string()
-        });
+        // With std::sync::RwLock, this is a plain synchronous read — no runtime needed.
+        let token_str = self.state.read().unwrap().access_token.expose_secret().to_string();
         Ok(schwab_sdk::AuthToken::new(token_str))
     }
 }
@@ -177,16 +172,15 @@ impl SchwabTokenProvider {
 
         Self {
             state: RwLock::new(initial_state),
-            credential: Arc::new(RwLock::new(credential)),
+            credential: Arc::new(tokio::sync::RwLock::new(credential)),
             http: reqwest::Client::new(),
             token_url: "https://api.schwabapi.com/v1/oauth/token".to_string(),
-            runtime_handle: tokio::runtime::Handle::current(),
         }
     }
 
     /// Check if the access token needs refresh.
-    pub async fn needs_refresh(&self) -> bool {
-        self.state.read().await.is_expired()
+    pub fn needs_refresh(&self) -> bool {
+        self.state.read().unwrap().is_expired()
     }
 
     /// Refresh the access token using the refresh token.
@@ -194,23 +188,31 @@ impl SchwabTokenProvider {
     /// This method is safe to call concurrently; only one refresh will execute
     /// at a time due to the write lock on `state`.
     pub async fn refresh_token(&self) -> Result<(), SchwabHttpError> {
-        let mut state = self.state.write().await;
-
-        // Double-check: another task may have refreshed while we waited
-        if !state.is_expired() {
-            debug!("token already refreshed by another task");
-            return Ok(());
+        // Check expiry with a brief read lock (std::sync::RwLock is fine here —
+        // not held across await points).
+        {
+            let state = self.state.read().unwrap();
+            if !state.is_expired() {
+                debug!("token already refreshed by another task");
+                return Ok(());
+            }
         }
 
         let cred = self.credential.read().await;
         info!("refreshing Schwab access token");
+
+        // Read the current refresh token before making the HTTP call.
+        let current_refresh_token = {
+            let state = self.state.read().unwrap();
+            state.refresh_token.expose_secret().to_string()
+        };
 
         let response = self
             .http
             .post(&self.token_url)
             .form(&[
                 ("grant_type", "refresh_token"),
-                ("refresh_token", state.refresh_token.expose_secret()),
+                ("refresh_token", &current_refresh_token),
                 ("client_id", cred.app_key()),
                 ("client_secret", cred.app_secret()),
             ])
@@ -233,15 +235,17 @@ impl SchwabTokenProvider {
                 reason: e.to_string(),
             }))?;
 
-        // Update state with new tokens
-        state.access_token = SecretString::from(token_response.access_token.clone());
-        if let Some(new_refresh) = token_response.refresh_token {
-            state.refresh_token = SecretString::from(new_refresh);
+        // Update state with new tokens (brief write lock, not held across await).
+        {
+            let mut state = self.state.write().unwrap();
+            state.access_token = SecretString::from(token_response.access_token.clone());
+            if let Some(new_refresh) = token_response.refresh_token {
+                state.refresh_token = SecretString::from(new_refresh);
+            }
+            state.expires_at = chrono::Utc::now().timestamp() + token_response.expires_in as i64;
         }
-        state.expires_at = chrono::Utc::now().timestamp() + token_response.expires_in as i64;
 
         // Also update the credential store
-        drop(state);
         let mut cred = self.credential.write().await;
         cred.update_access_token(token_response.access_token);
 
@@ -250,8 +254,8 @@ impl SchwabTokenProvider {
     }
 
     /// Get time until token expiry in seconds (negative if expired).
-    pub async fn secs_until_expiry(&self) -> i64 {
-        let state = self.state.read().await;
+    pub fn secs_until_expiry(&self) -> i64 {
+        let state = self.state.read().unwrap();
         state.expires_at - chrono::Utc::now().timestamp()
     }
 }
@@ -270,6 +274,6 @@ struct TokenResponse {
     scope: String,
 }
 
-// Safety: SchwabTokenProvider uses RwLock for interior mutability
-unsafe impl Send for SchwabTokenProvider {}
-unsafe impl Sync for SchwabTokenProvider {}
+// std::sync::RwLock<T> is Send+Sync when T: Send+Sync, and all other fields
+// (Arc<tokio::sync::RwLock<_>>, reqwest::Client, String) are also Send+Sync.
+// No manual unsafe impls needed.
