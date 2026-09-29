@@ -1,0 +1,79 @@
+[package]
+name = "nautilus-schwab"
+version = "0.1.0"
+edition = "2021"
+authors = ["SATR Trading Team"]
+description = "Charles Schwab adapter for Nautilus Trader"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/satr-trading/nautilus-schwab"
+keywords = ["nautilus", "schwab", "trading", "quantitative"]
+categories = ["finance"]
+readme = "README.md"
+
+[lib]
+name = "nautilus_schwab"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# Schwab API client
+schwab-sdk = "0.3"
+
+# Nautilus Trader core types
+nautilus-core = { version = "0.42", features = ["python"] }
+nautilus-model = { version = "0.42", features = ["python"] }
+nautilus-common = { version = "0.42", features = ["python"] }
+nautilus-live = { version = "0.42", features = ["python"] }
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Decimal arithmetic (must match schwab-sdk's rust_decimal)
+rust_decimal = { version = "1.42", features = ["serde-with-str"] }
+rust_decimal_macros = "1.42"
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# Logging / tracing
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# HTTP client (for OAuth token refresh, supplementary requests)
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+
+# Error handling
+thiserror = "2"
+anyhow = "1"
+
+# Secret handling
+zeroize = { version = "1", features = ["derive"] }
+secrecy = "0.10"
+
+# URL encoding for OAuth
+url = "2"
+
+# UUID for correlation
+uuid = { version = "1", features = ["v4"] }
+
+# PyO3 Python bindings
+pyo3 = { version = "0.22", features = ["extension-module", "abi3-py39"] }
+pyo3-async-runtimes = { version = "0.22", features = ["tokio-runtime"] }
+
+[dev-dependencies]
+tokio-test = "0.4"
+wiremock = "0.6"
+pretty_assertions = "1"
+
+[features]
+default = []
+python = ["pyo3/extension-module"]
+
+[profile.release]
+opt-level = 3
+lto = true
+strip = true
