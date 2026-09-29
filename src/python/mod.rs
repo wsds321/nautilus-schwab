@@ -20,7 +20,7 @@ use pyo3::prelude::*;
 /// The module name must match the lib name in Cargo.toml (`nautilus_schwab`)
 /// and the maturin `module-name` setting (`nautilus_schwab._internal`).
 #[pymodule]
-fn nautilus_schwab(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn _internal(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Register credential types
     m.add_class::<PySchwabCredential>()?;
 
