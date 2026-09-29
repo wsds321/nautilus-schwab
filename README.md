@@ -52,23 +52,30 @@ A Rust-native adapter that connects Nautilus Trader to Charles Schwab's Trader A
 
 ## Setup
 
-### 1. Create Schwab Developer App
+### Option A: Use Existing schwab-mcp Infrastructure (Recommended)
+
+If you already have [schwab-mcp](https://github.com/satr-trading/schwab-mcp) set up with valid tokens, nautilus-schwab can read credentials directly:
+
+```rust
+let provider = SchwabTokenProvider::from_schwab_mcp()?;
+// Reads from ~/.local/share/schwab-mcp/token.yaml and credentials.yaml
+```
+
+This integrates with the existing OAuth setup used by finrl-trading and avoids duplicate credential management.
+
+To refresh tokens, use the existing script:
+```bash
+./finrl-trading/scripts/refresh_schwab_oauth.sh
+```
+
+### Option B: Standalone Setup
 
 1. Register at [developer.schwab.com](https://developer.schwab.com/)
 2. Create a new app with "Individual" account type
 3. Set callback URL to `https://127.0.0.1/callback`
-4. Note your App Key and App Secret
+4. Copy `.env.example` to `.env` and fill in your credentials
 
-### 2. Configure Credentials
-
-Copy `.env.example` to `.env` and fill in your credentials:
-
-```bash
-cp .env.example .env
-# Edit .env with your Schwab API credentials
-```
-
-### 3. Build
+### Build
 
 ```bash
 # Rust only

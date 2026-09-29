@@ -1,17 +1,28 @@
 //! OAuth token provider with automatic refresh.
 //!
-//! Manages the lifecycle of Schwab OAuth tokens:
-//! - Tracks access token expiry (30-minute TTL)
-//! - Automatically refreshes using refresh token before expiry
-//! - Thread-safe for concurrent access from data and execution clients
-//! - Zeroizes old tokens on replacement
+//! Integrates with existing schwab-mcp infrastructure:
+//! - Reads tokens from `~/.local/share/schwab-mcp/token.yaml`
+//! - Reads credentials from `~/.local/share/schwab-mcp/credentials.yaml`
+//! - Refreshes via direct HTTP call to Schwab token endpoint
+//! - Falls back to environment variables if files not found
+//!
+//! Token lifecycle:
+//! - Access tokens expire after 30 minutes
+//! - Refresh tokens expire after 7 days
+//! - Proactive refresh 5 minutes before expiry
 
 use crate::common::credential::SchwabCredential;
 use crate::http::error::SchwabHttpError;
 use secrecy::{ExposeSecret, SecretString};
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
+
+/// Default path to schwab-mcp token file.
+const DEFAULT_TOKEN_PATH: &str = "~/.local/share/schwab-mcp/token.yaml";
+/// Default path to schwab-mcp credentials file.
+const DEFAULT_CREDENTIALS_PATH: &str = "~/.local/share/schwab-mcp/credentials.yaml";
 
 /// Token metadata including expiry tracking.
 #[derive(Debug, Clone)]
@@ -49,6 +60,80 @@ pub struct SchwabTokenProvider {
 }
 
 impl SchwabTokenProvider {
+    /// Create a token provider by reading from existing schwab-mcp infrastructure.
+    ///
+    /// Reads:
+    /// - `~/.local/share/schwab-mcp/token.yaml` for access/refresh tokens
+    /// - `~/.local/share/schwab-mcp/credentials.yaml` for app key/secret
+    ///
+    /// This integrates with the existing OAuth setup used by finrl-trading
+    /// and schwab-mcp, avoiding duplicate credential management.
+    pub fn from_schwab_mcp() -> Result<Self, SchwabHttpError> {
+        let token_path = shellexpand::tilde(DEFAULT_TOKEN_PATH).into_owned();
+        let creds_path = shellexpand::tilde(DEFAULT_CREDENTIALS_PATH).into_owned();
+
+        // Read token.yaml
+        let token_content = std::fs::read_to_string(&token_path).map_err(|e| {
+            SchwabHttpError::Validation(format!(
+                "cannot read token file {}: {}",
+                token_path, e
+            ))
+        })?;
+        let token_doc: serde_yaml::Value = serde_yaml::from_str(&token_content)
+            .map_err(|e| SchwabHttpError::Parse(format!("invalid token.yaml: {}", e)))?;
+
+        let token = token_doc.get("token").unwrap_or(&token_doc);
+        let access_token = token["access_token"]
+            .as_str()
+            .ok_or_else(|| SchwabHttpError::Parse("missing access_token in token.yaml".into()))?;
+        let refresh_token = token["refresh_token"]
+            .as_str()
+            .ok_or_else(|| SchwabHttpError::Parse("missing refresh_token in token.yaml".into()))?;
+        let expires_at = token["expires_at"]
+            .as_i64()
+            .or_else(|| token_doc.get("creation_timestamp").and_then(|v| v.as_i64()).map(|ts| ts + 1800))
+            .unwrap_or_else(|| chrono::Utc::now().timestamp() + 1800);
+
+        // Read credentials.yaml
+        let creds_content = std::fs::read_to_string(&creds_path).map_err(|e| {
+            SchwabHttpError::Validation(format!(
+                "cannot read credentials file {}: {}",
+                creds_path, e
+            ))
+        })?;
+        let creds_doc: serde_yaml::Value = serde_yaml::from_str(&creds_content)
+            .map_err(|e| SchwabHttpError::Parse(format!("invalid credentials.yaml: {}", e)))?;
+
+        let app_key = creds_doc["app_key"]
+            .as_str()
+            .or_else(|| creds_doc["client_id"].as_str())
+            .ok_or_else(|| SchwabHttpError::Parse("missing app_key in credentials.yaml".into()))?;
+        let app_secret = creds_doc["app_secret"]
+            .as_str()
+            .or_else(|| creds_doc["client_secret"].as_str())
+            .ok_or_else(|| SchwabHttpError::Parse("missing app_secret in credentials.yaml".into()))?;
+        let callback_url = creds_doc["callback_url"]
+            .as_str()
+            .unwrap_or("https://127.0.0.1:8182");
+
+        let credential = SchwabCredential::new(
+            app_key,
+            app_secret,
+            callback_url,
+            access_token,
+            refresh_token,
+        );
+
+        info!(
+            token_path = %token_path,
+            creds_path = %creds_path,
+            expires_at,
+            "loaded Schwab credentials from schwab-mcp infrastructure"
+        );
+
+        Ok(Self::new(credential))
+    }
+
     /// Create a new token provider from credentials.
     ///
     /// Assumes the initial access token is valid. The provider will
@@ -57,7 +142,6 @@ impl SchwabTokenProvider {
         let initial_state = TokenState {
             access_token: SecretString::new(credential.access_token().to_string()),
             refresh_token: SecretString::new(credential.refresh_token().to_string()),
-            // Assume token was just issued; expires in 30 minutes
             expires_at: chrono::Utc::now().timestamp() + 1800,
             refresh_buffer_secs: 300, // Refresh 5 minutes before expiry
         };
