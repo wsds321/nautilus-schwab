@@ -33,6 +33,9 @@ Thumbs.db
 *.pem
 *.key
 
+# Univer
+*.univer
+
 # Build artifacts
 *.so
 *.dylib
