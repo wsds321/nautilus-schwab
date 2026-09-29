@@ -8,18 +8,38 @@ version = "0.1.0"
 description = "Charles Schwab adapter for Nautilus Trader"
 readme = "README.md"
 license = { text = "MIT" }
-requires-python = ">=3.10"
-dependencies = [
-    "nautilus_trader>=1.200.0",
+authors = [
+    { name = "SATR Trading Team" },
 ]
+maintainers = [
+    { name = "SATR Trading Team" },
+]
+requires-python = ">=3.9"
+dependencies = []
 classifiers = [
     "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
     "Intended Audience :: Financial and Insurance Industry",
     "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Programming Language :: Rust",
     "Topic :: Office/Business :: Financial :: Investment",
+    "Topic :: Software Development :: Libraries :: Python Modules",
 ]
+keywords = ["nautilus", "schwab", "trading", "quantitative", "finance"]
+
+[project.urls]
+Homepage = "https://github.com/satr-trading/nautilus-schwab"
+Repository = "https://github.com/satr-trading/nautilus-schwab"
+Documentation = "https://github.com/satr-trading/nautilus-schwab#readme"
+Changelog = "https://github.com/satr-trading/nautilus-schwab/blob/main/CHANGELOG.md"
+Issues = "https://github.com/satr-trading/nautilus-schwab/issues"
 
 [tool.maturin]
 features = ["python"]

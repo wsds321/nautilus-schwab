@@ -6,9 +6,12 @@ authors = ["SATR Trading Team"]
 description = "Charles Schwab adapter for Nautilus Trader"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/satr-trading/nautilus-schwab"
-keywords = ["nautilus", "schwab", "trading", "quantitative"]
+homepage = "https://github.com/satr-trading/nautilus-schwab"
+documentation = "https://docs.rs/nautilus-schwab"
+keywords = ["nautilus", "schwab", "trading", "quantitative", "finance"]
 categories = ["finance"]
 readme = "README.md"
+rust-version = "1.89"
 
 [lib]
 name = "nautilus_schwab"
