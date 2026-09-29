@@ -9,11 +9,13 @@
 //!
 //! V1 scope: US equities and ETFs only. Options, futures, forex are deferred.
 
+use std::any::Any;
 use std::collections::HashSet;
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use nautilus_common::clients::DataClient;
+use nautilus_common::factories::client::ClientConfig;
 use nautilus_common::messages::data::{
     RequestBars, RequestBookDeltas, RequestBookDepth, RequestBookSnapshot, RequestCustomData,
     RequestFundingRates, RequestInstrument, RequestInstruments, RequestOptionChainReferencePrice,
@@ -45,6 +47,12 @@ impl Default for SchwabDataClientConfig {
         Self {
             client_id: "SCHWAB".to_string(),
         }
+    }
+}
+
+impl ClientConfig for SchwabDataClientConfig {
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 }
 

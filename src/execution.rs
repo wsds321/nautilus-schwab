@@ -9,11 +9,13 @@
 //!
 //! V1 scope: US equities only. Options, futures, forex deferred to V2.
 
+use std::any::Any;
 use std::sync::Arc;
 
 use anyhow::{Context, anyhow};
 use async_trait::async_trait;
 use nautilus_common::clients::ExecutionClient;
+use nautilus_common::factories::client::ClientConfig;
 use nautilus_common::messages::execution::{
     CancelOrder, GenerateFillReports, GenerateOrderStatusReport, GenerateOrderStatusReports,
     GeneratePositionStatusReports, ModifyOrder, QueryAccount, QueryOrder, SubmitOrder,
@@ -49,6 +51,12 @@ impl Default for SchwabExecutionClientConfig {
             account_id: "SCHWAB-001".to_string(),
             default_account: None,
         }
+    }
+}
+
+impl ClientConfig for SchwabExecutionClientConfig {
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 }
 
