@@ -37,11 +37,11 @@ impl SchwabCredential {
         refresh_token: impl Into<String>,
     ) -> Self {
         Self {
-            app_key: SecretString::new(app_key.into()),
-            app_secret: SecretString::new(app_secret.into()),
+            app_key: SecretString::from(app_key.into()),
+            app_secret: SecretString::from(app_secret.into()),
             callback_url: callback_url.into(),
-            access_token: SecretString::new(access_token.into()),
-            refresh_token: SecretString::new(refresh_token.into()),
+            access_token: SecretString::from(access_token.into()),
+            refresh_token: SecretString::from(refresh_token.into()),
         }
     }
 
@@ -101,7 +101,7 @@ impl SchwabCredential {
 
     /// Update the access token after a successful refresh.
     pub fn update_access_token(&mut self, new_token: impl Into<String>) {
-        self.access_token = SecretString::new(new_token.into());
+        self.access_token = SecretString::from(new_token.into());
     }
 
     /// Update both tokens after a full re-authorization.
@@ -110,8 +110,8 @@ impl SchwabCredential {
         new_access: impl Into<String>,
         new_refresh: impl Into<String>,
     ) {
-        self.access_token = SecretString::new(new_access.into());
-        self.refresh_token = SecretString::new(new_refresh.into());
+        self.access_token = SecretString::from(new_access.into());
+        self.refresh_token = SecretString::from(new_refresh.into());
     }
 }
 

@@ -19,12 +19,12 @@
 //! │  └──────┬───────┘   └──────────┬─────────────┘  │
 //! │         │                       │                │
 //! │  ┌──────▼───────────────────────▼─────────────┐  │
-//! │  │          schwab-sdk (Rust crate)            │  │
+//! │  │          schwab-sdk 0.5 (Rust crate)        │  │
 //! │  │  accounts · orders · market_data · streamer │  │
 //! │  └──────────────────┬─────────────────────────┘  │
 //! │                     │                             │
 //! │  ┌──────────────────▼─────────────────────────┐  │
-//! │  │   OAuth TokenProvider (refresh-on-demand)  │  │
+//! │  │   TokenProvider impl (refresh-on-demand)   │  │
 //! │  └────────────────────────────────────────────┘  │
 //! └─────────────────────────────────────────────────┘
 //! ```
@@ -35,10 +35,10 @@
 //! |---|---|---|
 //! | US Equities & ETFs | ✅ Planned | Primary target |
 //! | Market Orders | ✅ Planned | |
-//! | Limit Orders | ✅ Planned | |
+//! | Limit Orders | ✅ Planned | Via `OrderRequest::buy_limit()` etc. |
 //! | Stop Orders | ✅ Planned | |
-//! | Real-time Quotes | ✅ Planned | Via WebSocket streamer |
-//! | Real-time Bars | ✅ Planned | Via WebSocket streamer |
+//! | Real-time Quotes | ✅ Planned | Via `client.streamer()` |
+//! | Real-time Bars | ✅ Planned | Via `client.streamer()` |
 //! | Account Balance | ✅ Planned | |
 //! | Position Reconciliation | ✅ Planned | Startup mass-status |
 //! | OAuth Token Refresh | ✅ Planned | Automatic via TokenProvider |
@@ -51,7 +51,6 @@
 pub mod common;
 pub mod http;
 pub mod oauth;
-pub mod websocket;
 
 pub mod data;
 pub mod execution;
@@ -67,12 +66,3 @@ pub use oauth::provider::SchwabTokenProvider;
 
 /// Adapter venue identifier used in Nautilus InstrumentId values.
 pub const VENUE: &str = "SCHWAB";
-
-/// Default Schwab Trader API base URL.
-pub const DEFAULT_TRADER_BASE_URL: &str = "https://api.schwabapi.com/trader/v1";
-
-/// Default Schwab Market Data API base URL.
-pub const DEFAULT_MARKET_DATA_BASE_URL: &str = "https://api.schwabapi.com/marketdata/v1";
-
-/// Default Schwab Streamer WebSocket URL.
-pub const DEFAULT_STREAMER_URL: &str = "wss://streamer-api.schwab.com/streamer";

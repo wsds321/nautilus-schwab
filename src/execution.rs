@@ -5,11 +5,15 @@
 //! - Order modification and cancellation
 //! - Position and account reconciliation
 //! - Fill report processing
+//!
+//! NOTE: This module is a placeholder pending Phase 2 rewrite to use
+//! schwab-sdk 0.5's `orders(hash)` namespace and `OrderRequest` builder.
 
 use crate::common::credential::SchwabCredential;
 use crate::common::enums::{SchwabOrderSide, SchwabOrderType, SchwabTimeInForce};
 use crate::common::symbol::SchwabSymbol;
-use crate::http::client::{HttpClientConfig, SchwabHttpClient};
+use crate::http::client::SchwabHttpClient;
+use crate::oauth::provider::SchwabTokenProvider;
 use rust_decimal::Decimal;
 use std::sync::Arc;
 use tracing::info;
@@ -17,10 +21,6 @@ use tracing::info;
 /// Configuration for the Schwab execution client.
 #[derive(Debug, Clone)]
 pub struct SchwabExecutionClientConfig {
-    /// HTTP client configuration.
-    pub http: HttpClientConfig,
-    /// Trader API base URL.
-    pub trader_base_url: String,
     /// Default account number (if multiple accounts exist).
     pub default_account: Option<String>,
 }
@@ -28,8 +28,6 @@ pub struct SchwabExecutionClientConfig {
 impl Default for SchwabExecutionClientConfig {
     fn default() -> Self {
         Self {
-            http: HttpClientConfig::default(),
-            trader_base_url: crate::DEFAULT_TRADER_BASE_URL.to_string(),
             default_account: None,
         }
     }
@@ -62,8 +60,12 @@ pub struct SubmitOrderParams {
 /// - Order submission, modification, and cancellation
 /// - Account balance and position queries
 /// - Mass status reconciliation on startup
+///
+/// TODO: Rewrite to use `schwab_sdk::SchwabClient::orders(hash)` namespace
+/// and `OrderRequest` typestate builder.
+#[allow(dead_code)]
 pub struct SchwabExecutionClient {
-    /// HTTP client for REST API calls.
+    /// HTTP client wrapping schwab-sdk.
     http_client: Arc<SchwabHttpClient>,
     /// Client configuration.
     config: SchwabExecutionClientConfig,
@@ -75,7 +77,8 @@ impl SchwabExecutionClient {
         credential: SchwabCredential,
         config: SchwabExecutionClientConfig,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let http_client = Arc::new(SchwabHttpClient::new(credential, config.http.clone())?);
+        let token_provider = Arc::new(SchwabTokenProvider::new(credential));
+        let http_client = Arc::new(SchwabHttpClient::new(token_provider));
 
         Ok(Self {
             http_client,
@@ -96,8 +99,7 @@ impl SchwabExecutionClient {
             "submitting order"
         );
 
-        // TODO: Build Schwab order payload and POST to /accounts/{id}/orders
-        // Return the Schwab order ID
+        // TODO: Use self.http_client.inner().orders(hash) with OrderRequest builder
         todo!("Implement order submission via schwab-sdk")
     }
 
@@ -105,11 +107,11 @@ impl SchwabExecutionClient {
     pub async fn cancel_order(
         &self,
         order_id: &str,
-        account: Option<&str>,
+        _account: Option<&str>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         info!(order_id, "cancelling order");
 
-        // TODO: DELETE /accounts/{id}/orders/{orderId}
+        // TODO: Use self.http_client.inner().orders(hash).cancel(order_id)
         todo!("Implement order cancellation via schwab-sdk")
     }
 
@@ -117,38 +119,38 @@ impl SchwabExecutionClient {
     pub async fn modify_order(
         &self,
         order_id: &str,
-        params: SubmitOrderParams,
+        _params: SubmitOrderParams,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         info!(order_id, "modifying order");
 
-        // TODO: PUT /accounts/{id}/orders/{orderId}
+        // TODO: Use self.http_client.inner().orders(hash).replace(order_id, ...)
         todo!("Implement order modification via schwab-sdk")
     }
 
     /// Query account balances.
     pub async fn get_account_balance(
         &self,
-        account: Option<&str>,
+        _account: Option<&str>,
     ) -> Result<serde_json::Value, Box<dyn std::error::Error + Send + Sync>> {
-        // TODO: GET /accounts/{id} or /accounts
+        // TODO: Use self.http_client.inner().accounts().get(...)
         todo!("Implement account balance query via schwab-sdk")
     }
 
     /// Query current positions.
     pub async fn get_positions(
         &self,
-        account: Option<&str>,
+        _account: Option<&str>,
     ) -> Result<Vec<serde_json::Value>, Box<dyn std::error::Error + Send + Sync>> {
-        // TODO: GET /accounts/{id} with positions field
+        // TODO: Use self.http_client.inner().accounts().get(...) with positions
         todo!("Implement position query via schwab-sdk")
     }
 
     /// Reconcile all open orders (mass status on startup).
     pub async fn reconcile_orders(
         &self,
-        account: Option<&str>,
+        _account: Option<&str>,
     ) -> Result<Vec<serde_json::Value>, Box<dyn std::error::Error + Send + Sync>> {
-        // TODO: GET /accounts/{id}/orders with status filter
+        // TODO: Use self.http_client.inner().orders(hash).list(...)
         todo!("Implement order reconciliation via schwab-sdk")
     }
 }

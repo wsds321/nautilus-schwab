@@ -16,17 +16,16 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 # Schwab API client
-schwab-sdk = "0.3"
+schwab-sdk = "0.5"
 
-# Nautilus Trader core types
-nautilus-core = { version = "0.42", features = ["python"] }
-nautilus-model = { version = "0.42", features = ["python"] }
-nautilus-common = { version = "0.42", features = ["python"] }
-nautilus-live = { version = "0.42", features = ["python"] }
+# Nautilus Trader core types (python feature deferred — pyo3-stub-gen 0.20 incompatible with pyo3 0.29)
+nautilus-core = { version = "0.64" }
+nautilus-model = { version = "0.64" }
+nautilus-common = { version = "0.64" }
+nautilus-live = { version = "0.64", default-features = false }
 
 # Async runtime
 tokio = { version = "1", features = ["full"] }
-tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
 
 # Serialization
 serde = { version = "1", features = ["derive"] }
@@ -34,8 +33,8 @@ serde_json = "1"
 serde_yaml = "0.9"
 
 # Decimal arithmetic (must match schwab-sdk's rust_decimal)
-rust_decimal = { version = "1.42", features = ["serde-with-str"] }
-rust_decimal_macros = "1.42"
+rust_decimal = { version = "1", features = ["serde-with-str"] }
+rust_decimal_macros = "1"
 
 # Time
 chrono = { version = "0.4", features = ["serde"] }
@@ -45,7 +44,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # HTTP client (for OAuth token refresh, supplementary requests)
-reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+reqwest = { version = "0.13", features = ["json", "rustls", "form"], default-features = false }
 
 # Error handling
 thiserror = "2"
@@ -67,15 +66,13 @@ base64 = "0.22"
 sha2 = "0.10"
 rand = "0.8"
 
-# Async stream utilities (WebSocket split)
-futures-util = "0.3"
 
 # UUID for correlation
 uuid = { version = "1", features = ["v4"] }
 
-# PyO3 Python bindings
-pyo3 = { version = "0.22", features = ["extension-module", "abi3-py39"] }
-pyo3-async-runtimes = { version = "0.22", features = ["tokio-runtime"] }
+# PyO3 Python bindings (must match nautilus 0.64 which uses pyo3 0.29)
+pyo3 = { version = "0.29", features = ["extension-module", "abi3-py39"] }
+pyo3-async-runtimes = { version = "0.29", features = ["tokio-runtime"] }
 
 [dev-dependencies]
 tokio-test = "0.4"
