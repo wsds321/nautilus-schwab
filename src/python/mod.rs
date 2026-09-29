@@ -234,11 +234,12 @@ impl PySchwabDataClientConfig {
     ///
     /// Args:
     ///     client_id: Client identifier (default: "SCHWAB").
+    ///     reconnect_delay_ms: Base delay in ms for reconnection backoff (default: 1000).
     #[new]
-    #[pyo3(signature = (client_id="SCHWAB".to_string()))]
-    fn new(client_id: String) -> Self {
+    #[pyo3(signature = (client_id="SCHWAB".to_string(), reconnect_delay_ms=1000))]
+    fn new(client_id: String, reconnect_delay_ms: u64) -> Self {
         Self {
-            inner: crate::data::SchwabDataClientConfig { client_id },
+            inner: crate::data::SchwabDataClientConfig { client_id, reconnect_delay_ms },
         }
     }
 
@@ -248,8 +249,14 @@ impl PySchwabDataClientConfig {
         &self.inner.client_id
     }
 
+    /// Base delay in milliseconds for reconnection backoff.
+    #[getter]
+    fn reconnect_delay_ms(&self) -> u64 {
+        self.inner.reconnect_delay_ms
+    }
+
     fn __repr__(&self) -> String {
-        format!("SchwabDataClientConfig(client_id='{}')", self.inner.client_id)
+        format!("SchwabDataClientConfig(client_id='{}', reconnect_delay_ms={})", self.inner.client_id, self.inner.reconnect_delay_ms)
     }
 }
 
