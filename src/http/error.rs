@@ -55,3 +55,84 @@ impl SchwabHttpError {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── is_retryable() ──────────────────────────────────────────────────
+
+    #[test]
+    fn test_validation_not_retryable() {
+        let err = SchwabHttpError::Validation("bad input".into());
+        assert!(!err.is_retryable());
+    }
+
+    #[test]
+    fn test_auth_required_not_retryable() {
+        let err = SchwabHttpError::AuthRequired;
+        assert!(!err.is_retryable());
+    }
+
+    #[test]
+    fn test_token_provider_not_retryable() {
+        let err = SchwabHttpError::TokenProvider("failed to refresh".into());
+        assert!(!err.is_retryable());
+    }
+
+    // ── retry_after() ───────────────────────────────────────────────────
+
+    #[test]
+    fn test_validation_no_retry_after() {
+        let err = SchwabHttpError::Validation("x".into());
+        assert_eq!(err.retry_after(), None);
+    }
+
+    #[test]
+    fn test_auth_required_no_retry_after() {
+        let err = SchwabHttpError::AuthRequired;
+        assert_eq!(err.retry_after(), None);
+    }
+
+    #[test]
+    fn test_token_provider_no_retry_after() {
+        let err = SchwabHttpError::TokenProvider("x".into());
+        assert_eq!(err.retry_after(), None);
+    }
+
+    // ── Display / Error trait ───────────────────────────────────────────
+
+    #[test]
+    fn test_validation_display() {
+        let err = SchwabHttpError::Validation("missing price".into());
+        let msg = format!("{}", err);
+        assert!(msg.contains("validation error"));
+        assert!(msg.contains("missing price"));
+    }
+
+    #[test]
+    fn test_auth_required_display() {
+        let err = SchwabHttpError::AuthRequired;
+        let msg = format!("{}", err);
+        assert!(msg.contains("authentication required"));
+    }
+
+    #[test]
+    fn test_token_provider_display() {
+        let err = SchwabHttpError::TokenProvider("network timeout".into());
+        let msg = format!("{}", err);
+        assert!(msg.contains("token provider error"));
+        assert!(msg.contains("network timeout"));
+    }
+
+    // ── From<sdk::Error> conversion ─────────────────────────────────────
+
+    #[test]
+    fn test_from_sdk_error() {
+        // Verify the From impl compiles and produces the Sdk variant
+        use schwab_sdk::error::ErrorBody;
+        let sdk_err = schwab_sdk::Error::Unauthorized(ErrorBody::Unrecognized("test".into()));
+        let http_err: SchwabHttpError = sdk_err.into();
+        assert!(matches!(http_err, SchwabHttpError::Sdk(_)));
+    }
+}

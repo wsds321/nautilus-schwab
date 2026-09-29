@@ -157,6 +157,12 @@ mod tests {
         assert_eq!(factory.config_type(), "SchwabExecutionClientConfig");
     }
 
+    /// Helper: create a minimal CacheView for factory tests.
+    fn test_cache_view() -> CacheView {
+        use nautilus_common::cache::Cache;
+        CacheView::new(Rc::new(RefCell::new(Cache::new(None, None))))
+    }
+
     #[test]
     fn test_data_factory_rejects_wrong_config() {
         use std::any::Any;
@@ -169,18 +175,18 @@ mod tests {
 
         let factory = SchwabDataClientFactory;
         let wrong = WrongConfig;
-        // We can't easily construct a CacheView or Clock in a unit test,
-        // but we verify the downcast logic by checking the error message.
-        // The actual create() call would fail at downcast before touching cache/clock.
         let result = factory.create(
             "test",
             &wrong,
-            // These won't be reached due to downcast failure
-            unsafe { std::mem::zeroed() },
+            test_cache_view(),
             Rc::new(RefCell::new(nautilus_common::clock::TestClock::default())),
         );
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("SchwabDataClientConfig"));
+        let err_msg = match result {
+            Err(e) => e.to_string(),
+            Ok(_) => panic!("expected error"),
+        };
+        assert!(err_msg.contains("SchwabDataClientConfig"));
     }
 
     #[test]
@@ -200,10 +206,14 @@ mod tests {
             trader_id,
             "test",
             &wrong,
-            unsafe { std::mem::zeroed() },
+            test_cache_view(),
             Rc::new(RefCell::new(nautilus_common::clock::TestClock::default())),
         );
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("SchwabExecutionClientConfig"));
+        let err_msg = match result {
+            Err(e) => e.to_string(),
+            Ok(_) => panic!("expected error"),
+        };
+        assert!(err_msg.contains("SchwabExecutionClientConfig"));
     }
 }

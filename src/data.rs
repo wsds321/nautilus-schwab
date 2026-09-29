@@ -956,32 +956,103 @@ mod tests {
         _assert_data_client::<SchwabDataClient>();
     }
 
+    /// Helper: create a QuoteContent via JSON deserialization (the struct is
+    /// `#[non_exhaustive]` so we cannot use struct literal syntax).
+    fn make_quote_content(json: &str) -> QuoteContent {
+        serde_json::from_str(json).expect("valid QuoteContent JSON")
+    }
+
     #[test]
     fn test_cached_quote_sparse_update() {
         let mut cached = CachedQuote::default();
 
         // First update: only symbol and bid_price
-        let update1 = QuoteContent {
-            key: "AAPL".to_string(),
-            delayed: false,
-            symbol: Some("AAPL".to_string()),
-            bid_price: Some(rust_decimal_macros::dec!(150.00)),
-            ..Default::default()
-        };
+        let update1 = make_quote_content(
+            r#"{"key":"AAPL","delayed":false,"symbol":"AAPL","bid_price":150.00}"#,
+        );
         cached.apply_update(&update1);
         assert_eq!(cached.symbol.as_deref(), Some("AAPL"));
         assert_eq!(cached.bid_price, Some(rust_decimal_macros::dec!(150.00)));
         assert_eq!(cached.ask_price, None);
 
         // Second update: only ask_price (sparse)
-        let update2 = QuoteContent {
-            key: "AAPL".to_string(),
-            delayed: false,
-            ask_price: Some(rust_decimal_macros::dec!(150.50)),
-            ..Default::default()
-        };
+        let update2 = make_quote_content(
+            r#"{"key":"AAPL","delayed":false,"ask_price":150.50}"#,
+        );
         cached.apply_update(&update2);
         assert_eq!(cached.bid_price, Some(rust_decimal_macros::dec!(150.00))); // preserved
         assert_eq!(cached.ask_price, Some(rust_decimal_macros::dec!(150.50))); // updated
+    }
+
+    #[test]
+    fn test_cached_quote_full_update() {
+        let mut cached = CachedQuote::default();
+
+        // Full update with all major fields
+        let update = make_quote_content(
+            r#"{"key":"MSFT","delayed":false,"symbol":"MSFT","bid_price":380.00,"ask_price":380.50,"last_price":380.25,"bid_size":100,"ask_size":200,"high_price":382.00,"low_price":377.50,"close_price":379.00,"total_volume":1500000}"#,
+        );
+        cached.apply_update(&update);
+
+        assert_eq!(cached.symbol.as_deref(), Some("MSFT"));
+        assert_eq!(cached.bid_price, Some(rust_decimal_macros::dec!(380.00)));
+        assert_eq!(cached.ask_price, Some(rust_decimal_macros::dec!(380.50)));
+        assert_eq!(cached.last_price, Some(rust_decimal_macros::dec!(380.25)));
+        assert_eq!(cached.bid_size, Some(100));
+        assert_eq!(cached.ask_size, Some(200));
+        assert_eq!(cached.high_price, Some(rust_decimal_macros::dec!(382.00)));
+        assert_eq!(cached.low_price, Some(rust_decimal_macros::dec!(377.50)));
+        assert_eq!(cached.close_price, Some(rust_decimal_macros::dec!(379.00)));
+        assert_eq!(cached.total_volume, Some(1_500_000));
+    }
+
+    #[test]
+    fn test_cached_quote_multiple_sequential_sparse_updates() {
+        let mut cached = CachedQuote::default();
+
+        // Update 1: symbol only
+        cached.apply_update(&make_quote_content(
+            r#"{"key":"GOOG","delayed":false,"symbol":"GOOG"}"#,
+        ));
+        assert_eq!(cached.symbol.as_deref(), Some("GOOG"));
+        assert_eq!(cached.bid_price, None);
+
+        // Update 2: bid_price only
+        cached.apply_update(&make_quote_content(
+            r#"{"key":"GOOG","delayed":false,"bid_price":140.00}"#,
+        ));
+        assert_eq!(cached.symbol.as_deref(), Some("GOOG")); // preserved
+        assert_eq!(cached.bid_price, Some(rust_decimal_macros::dec!(140.00)));
+
+        // Update 3: ask_price and total_volume
+        cached.apply_update(&make_quote_content(
+            r#"{"key":"GOOG","delayed":false,"ask_price":140.50,"total_volume":500000}"#,
+        ));
+        assert_eq!(cached.symbol.as_deref(), Some("GOOG")); // preserved
+        assert_eq!(cached.bid_price, Some(rust_decimal_macros::dec!(140.00))); // preserved
+        assert_eq!(cached.ask_price, Some(rust_decimal_macros::dec!(140.50)));
+        assert_eq!(cached.total_volume, Some(500_000));
+
+        // Update 4: overwrite bid_price
+        cached.apply_update(&make_quote_content(
+            r#"{"key":"GOOG","delayed":false,"bid_price":141.00}"#,
+        ));
+        assert_eq!(cached.bid_price, Some(rust_decimal_macros::dec!(141.00))); // updated
+        assert_eq!(cached.ask_price, Some(rust_decimal_macros::dec!(140.50))); // preserved
+    }
+
+    #[test]
+    fn test_cached_quote_default_is_empty() {
+        let cached = CachedQuote::default();
+        assert_eq!(cached.symbol, None);
+        assert_eq!(cached.bid_price, None);
+        assert_eq!(cached.ask_price, None);
+        assert_eq!(cached.last_price, None);
+        assert_eq!(cached.bid_size, None);
+        assert_eq!(cached.ask_size, None);
+        assert_eq!(cached.total_volume, None);
+        assert_eq!(cached.high_price, None);
+        assert_eq!(cached.low_price, None);
+        assert_eq!(cached.close_price, None);
     }
 }

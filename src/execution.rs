@@ -762,3 +762,225 @@ impl ExecutionClient for SchwabExecutionClient {
         Ok(reports)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── Config defaults ─────────────────────────────────────────────────
+
+    #[test]
+    fn test_execution_config_defaults() {
+        let config = SchwabExecutionClientConfig::default();
+        assert_eq!(config.client_id, "SCHWAB");
+        assert_eq!(config.account_id, "SCHWAB-001");
+        assert_eq!(config.default_account, None);
+    }
+
+    #[test]
+    fn test_execution_config_custom() {
+        let config = SchwabExecutionClientConfig {
+            client_id: "MY-SCHWAB".to_string(),
+            account_id: "SCHWAB-002".to_string(),
+            default_account: Some("12345678".to_string()),
+        };
+        assert_eq!(config.client_id, "MY-SCHWAB");
+        assert_eq!(config.account_id, "SCHWAB-002");
+        assert_eq!(config.default_account.as_deref(), Some("12345678"));
+    }
+
+    // ── ClientConfig trait ──────────────────────────────────────────────
+
+    #[test]
+    fn test_client_config_trait() {
+        let config = SchwabExecutionClientConfig::default();
+        // Verify as_any returns the correct type
+        let any = config.as_any();
+        assert!(any.downcast_ref::<SchwabExecutionClientConfig>().is_some());
+    }
+
+    // ── map_order_status ────────────────────────────────────────────────
+
+    #[test]
+    fn test_map_order_status_filled() {
+        assert_eq!(
+            map_order_status(&schwab_sdk::orders::ApiOrderStatus::Filled),
+            OrderStatus::Filled
+        );
+    }
+
+    #[test]
+    fn test_map_order_status_canceled() {
+        assert_eq!(
+            map_order_status(&schwab_sdk::orders::ApiOrderStatus::Canceled),
+            OrderStatus::Canceled
+        );
+    }
+
+    #[test]
+    fn test_map_order_status_rejected() {
+        assert_eq!(
+            map_order_status(&schwab_sdk::orders::ApiOrderStatus::Rejected),
+            OrderStatus::Rejected
+        );
+    }
+
+    #[test]
+    fn test_map_order_status_expired() {
+        assert_eq!(
+            map_order_status(&schwab_sdk::orders::ApiOrderStatus::Expired),
+            OrderStatus::Expired
+        );
+    }
+
+    #[test]
+    fn test_map_order_status_accepted_variants() {
+        // All these should map to Accepted
+        let accepted_statuses = [
+            schwab_sdk::orders::ApiOrderStatus::New,
+            schwab_sdk::orders::ApiOrderStatus::Accepted,
+            schwab_sdk::orders::ApiOrderStatus::Working,
+            schwab_sdk::orders::ApiOrderStatus::Queued,
+            schwab_sdk::orders::ApiOrderStatus::PendingActivation,
+            schwab_sdk::orders::ApiOrderStatus::AwaitingParentOrder,
+            schwab_sdk::orders::ApiOrderStatus::AwaitingCondition,
+            schwab_sdk::orders::ApiOrderStatus::AwaitingStopCondition,
+            schwab_sdk::orders::ApiOrderStatus::AwaitingManualReview,
+            schwab_sdk::orders::ApiOrderStatus::AwaitingUrOut,
+            schwab_sdk::orders::ApiOrderStatus::AwaitingReleaseTime,
+            schwab_sdk::orders::ApiOrderStatus::PendingAcknowledgement,
+        ];
+        for status in &accepted_statuses {
+            assert_eq!(map_order_status(status), OrderStatus::Accepted, "failed for {:?}", status);
+        }
+    }
+
+    #[test]
+    fn test_map_order_status_pending_cancel() {
+        assert_eq!(
+            map_order_status(&schwab_sdk::orders::ApiOrderStatus::PendingCancel),
+            OrderStatus::PendingCancel
+        );
+    }
+
+    #[test]
+    fn test_map_order_status_pending_update() {
+        assert_eq!(
+            map_order_status(&schwab_sdk::orders::ApiOrderStatus::PendingReplace),
+            OrderStatus::PendingUpdate
+        );
+        assert_eq!(
+            map_order_status(&schwab_sdk::orders::ApiOrderStatus::Replaced),
+            OrderStatus::PendingUpdate
+        );
+    }
+
+    #[test]
+    fn test_map_order_status_unknown() {
+        assert_eq!(
+            map_order_status(&schwab_sdk::orders::ApiOrderStatus::UnknownSchwab),
+            OrderStatus::Initialized
+        );
+    }
+
+    // ── map_instruction_to_side ─────────────────────────────────────────
+
+    #[test]
+    fn test_map_instruction_buy_variants() {
+        let buy_instructions = [
+            schwab_sdk::orders::Instruction::Buy,
+            schwab_sdk::orders::Instruction::BuyToCover,
+            schwab_sdk::orders::Instruction::BuyToOpen,
+            schwab_sdk::orders::Instruction::BuyToClose,
+        ];
+        for instr in &buy_instructions {
+            assert_eq!(map_instruction_to_side(instr), OrderSide::Buy, "failed for {:?}", instr);
+        }
+    }
+
+    #[test]
+    fn test_map_instruction_sell_variants() {
+        let sell_instructions = [
+            schwab_sdk::orders::Instruction::Sell,
+            schwab_sdk::orders::Instruction::SellShort,
+            schwab_sdk::orders::Instruction::SellToOpen,
+            schwab_sdk::orders::Instruction::SellToClose,
+            schwab_sdk::orders::Instruction::SellShortExempt,
+        ];
+        for instr in &sell_instructions {
+            assert_eq!(map_instruction_to_side(instr), OrderSide::Sell, "failed for {:?}", instr);
+        }
+    }
+
+    // ── map_schwab_order_type ───────────────────────────────────────────
+
+    #[test]
+    fn test_map_schwab_order_type() {
+        assert_eq!(
+            map_schwab_order_type(&schwab_sdk::orders::OrderType::Market),
+            OrderType::Market
+        );
+        assert_eq!(
+            map_schwab_order_type(&schwab_sdk::orders::OrderType::Limit),
+            OrderType::Limit
+        );
+        assert_eq!(
+            map_schwab_order_type(&schwab_sdk::orders::OrderType::Stop),
+            OrderType::StopMarket
+        );
+        assert_eq!(
+            map_schwab_order_type(&schwab_sdk::orders::OrderType::StopLimit),
+            OrderType::StopLimit
+        );
+        assert_eq!(
+            map_schwab_order_type(&schwab_sdk::orders::OrderType::TrailingStop),
+            OrderType::TrailingStopMarket
+        );
+    }
+
+    // ── map_duration_to_tif ─────────────────────────────────────────────
+
+    #[test]
+    fn test_map_duration_to_tif() {
+        assert_eq!(
+            map_duration_to_tif(&schwab_sdk::orders::Duration::Day),
+            TimeInForce::Day
+        );
+        assert_eq!(
+            map_duration_to_tif(&schwab_sdk::orders::Duration::GoodTillCancel),
+            TimeInForce::Gtc
+        );
+        assert_eq!(
+            map_duration_to_tif(&schwab_sdk::orders::Duration::FillOrKill),
+            TimeInForce::Fok
+        );
+        assert_eq!(
+            map_duration_to_tif(&schwab_sdk::orders::Duration::ImmediateOrCancel),
+            TimeInForce::Ioc
+        );
+    }
+
+    // ── datetime_to_unix_nanos ──────────────────────────────────────────
+
+    #[test]
+    fn test_datetime_to_unix_nanos() {
+        let dt = chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap();
+        let nanos = datetime_to_unix_nanos(&dt);
+        assert_eq!(nanos.as_u64(), 1_700_000_000_000_000_000u64);
+    }
+
+    #[test]
+    fn test_datetime_to_unix_nanos_epoch() {
+        let dt = chrono::DateTime::from_timestamp(0, 0).unwrap();
+        let nanos = datetime_to_unix_nanos(&dt);
+        assert_eq!(nanos.as_u64(), 0);
+    }
+
+    // ── ExecutionClient trait compilation check ─────────────────────────
+
+    #[test]
+    fn test_execution_client_trait_compiles() {
+        fn _assert_execution_client<T: ExecutionClient>() {}
+        _assert_execution_client::<SchwabExecutionClient>();
+    }
+}

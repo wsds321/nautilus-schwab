@@ -110,4 +110,76 @@ mod tests {
         let sym = SchwabSymbol::new("BRK.B").unwrap();
         assert_eq!(sym.to_instrument_id(), "BRK.B.SCHWAB");
     }
+
+    // ── Additional validation tests ─────────────────────────────────────
+
+    #[test]
+    fn rejects_special_characters() {
+        assert!(SchwabSymbol::new("AAPL@").is_err());
+        assert!(SchwabSymbol::new("A$APL").is_err());
+        assert!(SchwabSymbol::new("AAP L").is_err());
+        assert!(SchwabSymbol::new("AAPL!").is_err());
+    }
+
+    #[test]
+    fn accepts_valid_special_chars() {
+        // Dots, hyphens, slashes are valid
+        assert!(SchwabSymbol::new("BRK.B").is_ok());
+        assert!(SchwabSymbol::new("BF-B").is_ok());
+        assert!(SchwabSymbol::new("VFIAX/F").is_ok());
+    }
+
+    #[test]
+    fn display_impl() {
+        let sym = SchwabSymbol::new("AAPL").unwrap();
+        assert_eq!(format!("{}", sym), "AAPL");
+    }
+
+    #[test]
+    fn as_ref_str() {
+        let sym = SchwabSymbol::new("MSFT").unwrap();
+        let s: &str = sym.as_ref();
+        assert_eq!(s, "MSFT");
+    }
+
+    #[test]
+    fn from_instrument_id_round_trip_with_dots() {
+        let original = SchwabSymbol::new("BRK.B").unwrap();
+        let id_str = original.to_instrument_id();
+        assert_eq!(id_str, "BRK.B.SCHWAB");
+        let parsed = SchwabSymbol::from_instrument_id(&id_str).unwrap();
+        assert_eq!(parsed, original);
+    }
+
+    #[test]
+    fn from_instrument_id_rejects_no_suffix() {
+        assert!(SchwabSymbol::from_instrument_id("AAPL").is_err());
+    }
+
+    #[test]
+    fn equality_and_hash() {
+        use std::collections::HashSet;
+        let a = SchwabSymbol::new("AAPL").unwrap();
+        let b = SchwabSymbol::new("aapl").unwrap(); // normalized to uppercase
+        assert_eq!(a, b);
+
+        let mut set = HashSet::new();
+        set.insert(a.clone());
+        assert!(set.contains(&b));
+    }
+
+    #[test]
+    fn symbol_error_display_messages() {
+        let e1 = SymbolError::Empty;
+        assert!(format!("{}", e1).contains("empty"));
+
+        let e2 = SymbolError::InvalidChars("BAD!".into());
+        assert!(format!("{}", e2).contains("BAD!"));
+
+        let e3 = SymbolError::WrongVenue("AAPL.BINANCE".into());
+        assert!(format!("{}", e3).contains("BINANCE"));
+
+        let e4 = SymbolError::UnsupportedProduct("CRYPTO".into());
+        assert!(format!("{}", e4).contains("CRYPTO"));
+    }
 }
